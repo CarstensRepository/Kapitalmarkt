@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kapitalmarkt Monitor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d1117;
+      --sf:      #161b22;
+      --sf2:     #1c2128;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --muted:   #7d8590;
+      --subtle:  #484f58;
+      --green:   #3fb950;
+      --red:     #f85149;
+      --blue:    #58a6ff;
+      --yellow:  #e3b341;
+      --orange:  #f0883e;
+      --font:    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+      --mono:    'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:14px; min-height:100vh; }
+
+    /* ─── TOPBAR ────────────────────────────────────────────── */
+    .topbar {
+      background:var(--sf); border-bottom:1px solid var(--border);
+      padding:0 24px; height:52px; display:flex; align-items:center;
+      justify-content:space-between; position:sticky; top:0; z-index:200; gap:12px;
+    }
+    .brand { font-size:15px; font-weight:700; letter-spacing:-.025em; white-space:nowrap; }
+    .brand em { color:var(--blue); font-style:normal; }
+    .topbar-meta { display:flex; align-items:center; gap:12px; font-size:12px; flex-shrink:0; }
+    #ts-update { color:var(--muted); white-space:nowrap; }
+    .badge-cd {
+      background:rgba(88,166,255,.12); color:var(--blue);
+      border:1px solid rgba(88,166,255,.25);
+      padding:2px 10px; border-radius:20px; font-size:11px; white-space:nowrap;
+    }
+    .btn {
+      background:none; border:1px solid var(--border); color:var(--muted);
+      font-family:var(--font); font-size:12px; padding:5px 12px; border-radius:6px;
+      cursor:pointer; display:flex; align-items:center; gap:5px;
+      transition:border-color .15s, color .15s; white-space:nowrap;
+    }
+    .btn:hover:not(:disabled) { border-color:var(--blue); color:var(--blue); }
+    .btn:disabled { opacity:.45; cursor:not-allowed; }
+
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .spinning { animation:spin .8s linear infinite; display:inline-block; }
+
+    /* ─── MAIN ──────────────────────────────────────────────── */
+    .content { max-width:1600px; margin:0 auto; padding:18px 20px 8px; }
+
+    .grid {
+      display:grid; grid-template-columns:repeat(2,1fr); gap:14px;
+    }
+    @media(max-width:1100px) { .grid { grid-template-columns:1fr; } }
+
+    /* ─── CARD ──────────────────────────────────────────────── */
+    .card { background:var(--sf); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .card-head {
+      padding:10px 14px; border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:8px;
+    }
+    .card-icon { font-size:15px; line-height:1; }
+    .card-title { font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); }
+    .card-count { margin-left:auto; font-size:10.5px; color:var(--subtle); }
+    .dt-wrap { overflow-x:auto; }
+
+    /* ─── TABLE ─────────────────────────────────────────────── */
+    .dt { width:100%; border-collapse:collapse; }
+    .dt thead th {
+      padding:6px 9px; font-size:9.5px; font-weight:600; text-transform:uppercase;
+      letter-spacing:.06em; color:var(--subtle); text-align:right;
+      border-bottom:1px solid var(--border); background:rgba(0,0,0,.15);
+      white-space:nowrap;
+    }
+    .dt thead th:first-child { text-align:left; padding-left:14px; min-width:150px; }
+    .dt thead th:last-child  { padding-right:14px; }
+    .dt tbody tr { transition:background .1s; cursor:pointer; }
+    .dt tbody tr:not(:last-child) { border-bottom:1px solid rgba(48,54,61,.5); }
+    .dt tbody tr:hover    { background:var(--sf2); }
+    .dt tbody tr.selected { background:rgba(88,166,255,.07); border-left:2px solid var(--blue) !important; }
+    .dt td { padding:8px 9px; text-align:right; vertical-align:middle; white-space:nowrap; }
+    .dt td:first-child { text-align:left; padding-left:14px; }
+    .dt td:last-child  { padding-right:14px; }
+
+    .a-name { font-size:12.5px; font-weight:500; display:flex; align-items:center; gap:6px; }
+    .a-sub  { font-size:10px; color:var(--subtle); margin-top:1px; }
+
+    .dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+    .dot-live   { background:var(--green); }
+    .dot-pre    { background:var(--yellow); }
+    .dot-closed { background:var(--subtle); }
+
+    .num    { font-family:var(--mono); font-size:12px; font-weight:500; }
+    .num-lg { font-size:12.5px; font-weight:600; }
+    .up     { color:var(--green); }
+    .dn     { color:var(--red);   }
+    .flat   { color:var(--muted); }
+
+    /* ─── STATES ─────────────────────────────────────────────── */
+    .state-box { display:flex; align-items:center; justify-content:center; gap:10px; padding:24px 16px; color:var(--muted); font-size:13px; }
+    .spinner { width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:spin .75s linear infinite; flex-shrink:0; }
+
+    /* ─── CHART PANEL ────────────────────────────────────────── */
+    .chart-wrap { max-width:1600px; margin:0 auto; padding:0 20px 16px; }
+
+    .chart-box { background:var(--sf); border:1px solid var(--blue); border-radius:10px; overflow:hidden; }
+
+    .cp-head {
+      padding:11px 14px; border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    }
+    .cp-asset { display:flex; align-items:center; gap:7px; }
+    #cp-name  { font-size:14px; font-weight:600; }
+    #cp-sub   { font-size:11px; color:var(--muted); }
+    .cp-perf  { font-family:var(--mono); font-size:13px; font-weight:600; }
+
+    .cp-periods { display:flex; gap:4px; flex-wrap:wrap; margin:0 4px; }
+    .cp-pb {
+      background:none; border:1px solid var(--border); color:var(--muted);
+      font-family:var(--font); font-size:11px; padding:3px 9px;
+      border-radius:5px; cursor:pointer; transition:all .15s;
+    }
+    .cp-pb:hover          { border-color:var(--blue); color:var(--blue); }
+    .cp-pb.active         { background:rgba(88,166,255,.15); border-color:var(--blue); color:var(--blue); }
+
+    .cp-close {
+      margin-left:auto; background:none; border:none; color:var(--muted);
+      font-size:18px; cursor:pointer; line-height:1; padding:2px 6px; border-radius:4px;
+    }
+    .cp-close:hover { color:var(--text); background:var(--sf2); }
+
+    .cp-chart-area { height:300px; padding:12px 14px 10px; position:relative; }
+
+    .cp-loading { display:none; }
+
+    /* ─── FOOTER ─────────────────────────────────────────────── */
+    .footer {
+      max-width:1600px; margin:0 auto; padding:12px 20px;
+      display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;
+      font-size:10.5px; color:var(--subtle); border-top:1px solid var(--border);
+    }
+
+    @keyframes fadein { from { opacity:.3; } to { opacity:1; } }
+    .fadein { animation:fadein .35s ease; }
+  </style>
+</head>
+<body>
+
+<!-- ─── TOPBAR ──────────────────────────────────────────────── -->
+<header class="topbar">
+  <div class="brand">Kapitalmarkt<em>.</em>Monitor</div>
+  <div class="topbar-meta">
+    <span id="ts-update">Lade Daten…</span>
+    <span class="badge-cd" id="badge-cd" hidden>⟳ 5:00</span>
+    <button class="btn" id="btn-refresh" onclick="triggerRefresh()">
+      <svg id="ico-refresh" xmlns="http://www.w3.org/2000/svg" width="13" height="13"
+           viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+      </svg>
+      Aktualisieren
+    </button>
+  </div>
+</header>
+
+<!-- ─── MAIN GRID ───────────────────────────────────────────── -->
+<main class="content">
+  <div class="grid" id="main-grid">
+
+    <div class="card">
+      <div class="card-head"><span class="card-icon">📊</span><span class="card-title">Aktienindizes</span><span class="card-count" id="cnt-indices"></span></div>
+      <div class="dt-wrap" id="box-indices"><div class="state-box"><div class="spinner"></div>Lade…</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-icon">🛢</span><span class="card-title">Rohstoffe</span><span class="card-count" id="cnt-commodities"></span></div>
+      <div class="dt-wrap" id="box-commodities"><div class="state-box"><div class="spinner"></div>Lade…</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-icon">📈</span><span class="card-title">Anleihenrenditen &amp; Geldmarkt</span><span class="card-count" id="cnt-bonds"></span></div>
+      <div class="dt-wrap" id="box-bonds"><div class="state-box"><div class="spinner"></div>Lade…</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-icon">💱</span><span class="card-title">Währungen &amp; Krypto</span><span class="card-count" id="cnt-fx"></span></div>
+      <div class="dt-wrap" id="box-fx"><div class="state-box"><div class="spinner"></div>Lade…</div></div>
+    </div>
+
+  </div>
+</main>
+
+<!-- ─── CHART PANEL ─────────────────────────────────────────── -->
+<div class="chart-wrap" id="chart-panel" style="display:none">
+  <div class="chart-box">
+    <div class="cp-head">
+      <div class="cp-asset">
+        <span class="dot" id="cp-dot"></span>
+        <strong id="cp-name">—</strong>
+        <span id="cp-sub"></span>
+      </div>
+      <span class="cp-perf flat" id="cp-perf">—</span>
+      <div class="cp-periods">
+        <button class="cp-pb" onclick="setPeriod(this,'1d')">1T</button>
+        <button class="cp-pb" onclick="setPeriod(this,'1w')">1W</button>
+        <button class="cp-pb" onclick="setPeriod(this,'1m')">1M</button>
+        <button class="cp-pb" onclick="setPeriod(this,'3m')">3M</button>
+        <button class="cp-pb" onclick="setPeriod(this,'6m')">6M</button>
+        <button class="cp-pb" onclick="setPeriod(this,'ytd')">YTD</button>
+        <button class="cp-pb active" onclick="setPeriod(this,'1y')">1J</button>
+        <button class="cp-pb" onclick="setPeriod(this,'3y')">3J</button>
+        <button class="cp-pb" onclick="setPeriod(this,'5y')">5J</button>
+      </div>
+      <button class="cp-close" onclick="closeChart()" title="Schließen">✕</button>
+    </div>
+    <div class="state-box cp-loading" id="cp-loading"><div class="spinner"></div>Lade Chartdaten…</div>
+    <div class="cp-chart-area" id="cp-canvas-wrap">
+      <canvas id="price-chart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ─── FOOTER ──────────────────────────────────────────────── -->
+<footer class="footer">
+  <span>Datenquellen: Yahoo Finance, ECB Statistics API &nbsp;·&nbsp; Kurse ggf. verzögert &nbsp;·&nbsp; Keine Anlageberatung</span>
+  <span id="footer-date"></span>
+</footer>
+
+<script>
+/* ================================================================
+   KAPITALMARKT MONITOR  v2
+   ================================================================ */
+
+const REFRESH_SEC = 300;
+
+/* ── Symbol-Konfiguration ─────────────────────────────────────── */
+const CATEGORIES = [
+  {
+    key:'indices', boxId:'box-indices', cntId:'cnt-indices',
+    isBond:false, isFX:false, isCrypto:false,
+    symbols:[
+      { s:'EUNL.DE',   n:'MSCI World',        sub:'ETF · EUR · Xetra'  },
+      { s:'EUNM.DE',   n:'MSCI Emerging Mkts', sub:'ETF · EUR · Xetra' },
+      { s:'^GDAXI',    n:'DAX',               sub:'Deutschland'         },
+      { s:'^MDAXI',    n:'MDAX',              sub:'Deutschland'         },
+      { s:'^FTSE',     n:'FTSE 100',          sub:'UK'                  },
+      { s:'^SSMI',     n:'SMI',               sub:'Schweiz'             },
+      { s:'^GSPC',     n:'S&P 500',           sub:'USA'                 },
+      { s:'^STOXX50E', n:'Euro Stoxx 50',     sub:'Europa'              },
+      { s:'^N225',     n:'Nikkei 225',        sub:'Japan'               },
+      { s:'^HSI',      n:'Hang Seng',         sub:'Hongkong'            },
+    ]
+  },
+  {
+    key:'commodities', boxId:'box-commodities', cntId:'cnt-commodities',
+    isBond:false, isFX:false, isCrypto:false,
+    symbols:[
+      { s:'GC=F',          n:'Gold',   sub:'USD / Feinunze' },
+      { s:'XAUEUR_CALC',  n:'Gold',   sub:'EUR / Feinunze', isComputed:true, baseS:'GC=F', fxS:'EURUSD=X' },
+      { s:'SI=F',          n:'Silber', sub:'USD / Feinunze' },
+      { s:'XAGEUR_CALC',  n:'Silber', sub:'EUR / Feinunze', isComputed:true, baseS:'SI=F', fxS:'EURUSD=X' },
+      { s:'CL=F',      n:'WTI Rohöl',         sub:'USD / Barrel'   },
+      { s:'BZ=F',      n:'Brent Rohöl',       sub:'USD / Barrel'   },
+      { s:'NG=F',      n:'Erdgas (Henry Hub)', sub:'USD / MMBtu'    },
+      { s:'HG=F',      n:'Kupfer',            sub:'USD / Pfund'    },
+    ]
+  },
+  {
+    key:'bonds', boxId:'box-bonds', cntId:'cnt-bonds',
+    isBond:true, isFX:false, isCrypto:false,
+    symbols:[
+      // ── Euro / Deutschland  (Overnight → kurz → lang) ──────────
+      { s:'ESTR',       n:'€STR (Overnight)', sub:'EUR Interbank', ecb:'EST/B.EU000A2X2A25.WT'              },
+      { s:'EURIBOR1M',  n:'Euribor 1M',       sub:'EUR Interbank', ecb:'FM/D.U2.EUR.RT.MM.EURIBOR1MD_.HSTA' },
+      { s:'EURIBOR3M',  n:'Euribor 3M',       sub:'EUR Interbank', ecb:'FM/D.U2.EUR.RT.MM.EURIBOR3MD_.HSTA' },
+      { s:'EURIBOR6M',  n:'Euribor 6M',       sub:'EUR Interbank', ecb:'FM/D.U2.EUR.RT.MM.EURIBOR6MD_.HSTA' },
+      { s:'EURIBOR12M', n:'Euribor 12M',      sub:'EUR Interbank', ecb:'FM/D.U2.EUR.RT.MM.EURIBOR1YD_.HSTA' },
+      { s:'^DE3YT',     n:'DE 3J Bund',       sub:'Deutschland',   ecb:'YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_3Y'  },
+      { s:'^DE5YT',     n:'DE 5J Bund',       sub:'Deutschland',   ecb:'YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_5Y'  },
+      { s:'^DE7YT',     n:'DE 7J Bund',       sub:'Deutschland',   ecb:'YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_7Y'  },
+      { s:'^DE10YT',    n:'DE 10J Bund',      sub:'Deutschland',   ecb:'YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y' },
+      // ── USA  (kurz → lang) ─────────────────────────────────────
+      { s:'^IRX',       n:'US 3M T-Bill',     sub:'USA' },
+      { s:'^FVX',       n:'US 5J Treasury',   sub:'USA' },
+      { s:'^TNX',       n:'US 10J Treasury',  sub:'USA' },
+      { s:'^TYX',       n:'US 30J Treasury',  sub:'USA' },
+    ]
+  },
+  {
+    key:'fx', boxId:'box-fx', cntId:'cnt-fx',
+    isBond:false, isFX:true, isCrypto:false,
+    symbols:[
+      { s:'EURUSD=X', n:'EUR / USD', sub:'' },
+      { s:'EURCHF=X', n:'EUR / CHF', sub:'' },
+      { s:'EURGBP=X', n:'EUR / GBP', sub:'' },
+      { s:'EURJPY=X', n:'EUR / JPY', sub:'' },
+      { s:'EURHKD=X', n:'EUR / HKD', sub:'' },
+      { s:'BTC-USD',  n:'Bitcoin',   sub:'BTC',  isCrypto:true },
+      { s:'ETH-USD',  n:'Ethereum',  sub:'ETH',  isCrypto:true },
+      { s:'XRP-USD',  n:'XRP',       sub:'XRP',  isCrypto:true },
+      { s:'BNB-USD',  n:'BNB',       sub:'BNB',  isCrypto:true },
+      { s:'SOL-USD',  n:'Solana',    sub:'SOL',  isCrypto:true },
+      { s:'DOGE-USD', n:'Dogecoin',  sub:'DOGE', isCrypto:true },
+    ]
+  }
+];
+
+/* ── Flat symbol → config lookup (used by openChart) ─────────── */
+const symbolConfig = {};
+CATEGORIES.forEach(cat => cat.symbols.forEach(sym => { symbolConfig[sym.s] = sym; }));
+
+/* ── Data Caches ──────────────────────────────────────────────── */
+const weeklyCache   = {};  // symbol → {ts[], prices[], meta}  — for table metrics
+const dailyCache    = {};  // symbol → {ts[], prices[]}         — for chart (lazy)
+const intradayCache = {};  // symbol → {ts[], prices[]}         — for 1T chart (lazy)
+
+/* ── UI State ─────────────────────────────────────────────────── */
+let activeSymbol  = null;
+let activePeriod  = '1y';
+let activeChartJS = null;
+let activeRow     = null;
+let loading       = false;
+let cTimer        = null;
+let sLeft         = REFRESH_SEC;
+
+/* ── Yahoo Finance Fetch ──────────────────────────────────────── */
+function encSym(symbol) {
+  // Encode ^ but leave = unencoded — Yahoo Finance requires literal = in paths
+  // (e.g. ^DE10YT=RR, EURUSD=X).  encodeURIComponent would turn = into %3D
+  // which some Yahoo endpoints silently reject.
+  return symbol
+    .split('=').map(part => encodeURIComponent(part)).join('=');
+}
+
+async function fetchYahoo(symbol, range, interval) {
+  const enc  = encSym(symbol);
+  // _cb changes every minute → busts browser HTTP cache AND intermediate proxy caches
+  const _cb  = Math.floor(Date.now() / 60000);
+  const path = `/v8/finance/chart/${enc}?range=${range}&interval=${interval}&events=div%2Csplit&_=${_cb}`;
+  const base = 'https://query1.finance.yahoo.com';
+  const urls = [
+    `${base}${path}`,
+    `https://query2.finance.yahoo.com${path}`,
+    `https://corsproxy.io/?${encodeURIComponent(base + path)}`
+  ];
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        cache:   'no-store',          // never serve from browser cache
+        signal:  AbortSignal.timeout(14000)
+      });
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j?.chart?.error || !j?.chart?.result?.[0]) continue;
+      return j;
+    } catch { continue; }
+  }
+  return null;
+}
+
+/* ── Extract prev-close from short daily response ─────────────── */
+function extractDayPrev(raw) {
+  if (!raw) return null;
+  const res    = raw.chart.result[0];
+  const closes = res.indicators?.quote?.[0]?.close ?? [];
+  // Walk backwards to find last two valid (non-null) closes
+  const valid = [];
+  for (let i = closes.length - 1; i >= 0 && valid.length < 2; i--) {
+    if (closes[i] != null) valid.push(closes[i]);
+  }
+  // valid[0] = latest close, valid[1] = previous close
+  if (valid.length >= 2) return valid[1];
+  // Fallback to meta fields
+  const m = res.meta;
+  return m.previousClose ?? m.regularMarketPreviousClose ?? m.chartPreviousClose ?? null;
+}
+
+/* ── ECB Statistics API (for German Bund & other EU yields) ───── */
+// Public SDMX-JSON API, no auth required, CORS-enabled.
+// Series: YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y = AAA Euro area 10Y sovereign yield (Bund proxy)
+async function fetchECB(seriesPath) {
+  const start = new Date(Date.now() - 6 * 365 * 86400 * 1000).toISOString().slice(0, 10);
+  const base  = 'https://data-api.ecb.europa.eu/service/data';
+  const qs    = `?startPeriod=${start}&format=jsondata&detail=dataonly`;
+
+  // Build candidate paths: primary, then monthly-frequency fallback (D→M, B→M)
+  const fallback = seriesPath.replace(/\/(D|B)\./, '/M.');
+  const paths = [seriesPath];
+  if (fallback !== seriesPath) paths.push(fallback);
+
+  for (const path of paths) {
+    const direct = `${base}/${path}${qs}`;
+    const urls   = [direct, `https://corsproxy.io/?${encodeURIComponent(direct)}`];
+    for (const url of urls) {
+      try {
+        const r = await fetch(url, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(15000)
+        });
+        if (!r.ok) continue;
+        const j = await r.json();
+        if (j?.dataSets?.[0] && j?.structure) return j;
+      } catch { continue; }
+    }
+  }
+  return null;
+}
+
+// Parse SDMX-JSON into {ts[], prices[], meta, prevDayPrice}
+function ecbToCache(json) {
+  if (!json || !json.dataSets?.[0] || !json.structure) return null;
+
+  // TIME_PERIOD can live in observation OR series dims depending on ECB dataset (YC vs FM)
+  const allDims = [
+    ...(json.structure.dimensions?.observation ?? []),
+    ...(json.structure.dimensions?.series      ?? []),
+    ...(json.structure.dimensions?.dataset     ?? []),
+  ];
+  const timeDim = allDims.find(d => d.id === 'TIME_PERIOD');
+  if (!timeDim?.values?.length) return null;
+  const dates = timeDim.values; // [{id:"2020-01-02"}, ...]
+
+  // First (and only) series — handle both series-keyed and observation-keyed layouts
+  const ds = json.dataSets[0];
+  const seriesObj = ds.series ?? {};
+  const firstKey  = Object.keys(seriesObj)[0];
+
+  // Some ECB datasets put observations at the top level (no series wrapper)
+  const obsObj = firstKey
+    ? (seriesObj[firstKey].observations ?? {})
+    : (ds.observations ?? {});
+
+  // Build sorted arrays
+  const pairs = [];
+  for (const [idxStr, val] of Object.entries(obsObj)) {
+    const idx  = parseInt(idxStr, 10);
+    const date = dates[idx];
+    if (!date || val[0] == null) continue;
+    // Handle "YYYY-MM-DD" (daily) and "YYYY-MM" (monthly, use 15th as midpoint)
+    const iso = date.id.length === 7 ? date.id + '-15T12:00:00Z' : date.id + 'T12:00:00Z';
+    const ts = Math.floor(new Date(iso).getTime() / 1000);
+    pairs.push({ ts, price: val[0] });
+  }
+  if (!pairs.length) return null;
+  pairs.sort((a, b) => a.ts - b.ts);
+
+  const tsArr    = pairs.map(p => p.ts);
+  const priceArr = pairs.map(p => p.price);
+  const latest   = priceArr[priceArr.length - 1];
+  const prev     = priceArr.length >= 2 ? priceArr[priceArr.length - 2] : null;
+
+  return {
+    ts: tsArr,
+    prices: priceArr,
+    meta: { regularMarketPrice: latest, marketState: 'CLOSED', currency: 'EUR' },
+    prevDayPrice: prev
+  };
+}
+
+/* ── Closest historical close ─────────────────────────────────── */
+function closestBefore(ts, prices, targetTs) {
+  // Last non-null close strictly before targetTs
+  for (let i = ts.length - 1; i >= 0; i--) {
+    if (ts[i] < targetTs && prices[i] != null) return prices[i];
+  }
+  return null;
+}
+function closestTo(ts, prices, targetTs) {
+  let best = null, bestD = Infinity;
+  for (let i = 0; i < ts.length; i++) {
+    if (prices[i] == null) continue;
+    const d = Math.abs(ts[i] - targetTs);
+    if (d < bestD) { bestD = d; best = prices[i]; }
+  }
+  return best;
+}
+
+/* ── Metric Calculation ───────────────────────────────────────── */
+// dayPrev: previous-day close extracted from the short 5d/1d fetch (more reliable
+// than meta.previousClose which Yahoo often omits on weekly-range requests).
+function calcMetrics(cached, dayPrev, cfg) {
+  if (!cached) return { ...cfg, err:true };
+  const { ts, prices, meta } = cached;
+  const price = meta.regularMarketPrice;
+  if (!price) return { ...cfg, err:true };
+
+  // Best available previous close for daily change
+  const prev = dayPrev
+    ?? meta.previousClose
+    ?? meta.regularMarketPreviousClose
+    ?? null;
+
+  const nowTs  = Math.floor(Date.now() / 1000);
+  const d      = new Date();
+  const ytdTs  = Date.UTC(d.getFullYear(), 0,            1) / 1000;
+  const mtdTs  = Date.UTC(d.getFullYear(), d.getMonth(), 1) / 1000;
+  const y1Ts   = nowTs - 365   * 86400;
+  const y3Ts   = nowTs - 1096  * 86400;   // ~3 years
+  const y5Ts   = nowTs - 1827  * 86400;   // ~5 years
+
+  const ytdBase = closestBefore(ts, prices, ytdTs);
+  const mtdBase = closestBefore(ts, prices, mtdTs);
+  const y1Base  = closestTo(ts, prices, y1Ts);
+  const y3Base  = closestTo(ts, prices, y3Ts);
+  const y5Base  = closestTo(ts, prices, y5Ts);
+
+  const pct = (a, b) => (b != null && b !== 0 && a != null) ? (a - b) / Math.abs(b) * 100 : null;
+  const abs = (a, b) => (a != null && b != null) ? a - b : null;
+  const ann = (a, b, y) => (b > 0 && a > 0) ? (Math.pow(a / b, 1 / y) - 1) * 100 : null;
+
+  return {
+    ...cfg,
+    price, state: meta.marketState ?? 'CLOSED', currency: meta.currency,
+    dayPct: pct(price, prev),    dayAbs: abs(price, prev),
+    mtdPct: pct(price, mtdBase), mtdAbs: abs(price, mtdBase),
+    ytdPct: pct(price, ytdBase), ytdAbs: abs(price, ytdBase),
+    y1Pct:  pct(price, y1Base),  y1Abs:  abs(price, y1Base),
+    y3Pa:   ann(price, y3Base, 3), y3Abs: abs(price, y3Base),
+    y5Pa:   ann(price, y5Base, 5), y5Abs: abs(price, y5Base),
+  };
+}
+
+/* ── Format Helpers ───────────────────────────────────────────── */
+function fPrice(v, isFX, isCrypto) {
+  if (v == null) return '—';
+  if (isFX)     return v >= 50 ? v.toFixed(2) : v.toFixed(4);
+  if (isCrypto) return v >= 100 ? v.toLocaleString('de-DE', {minimumFractionDigits:2,maximumFractionDigits:2}) : v.toFixed(4);
+  return v.toLocaleString('de-DE', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fYield(v) { return v == null ? '—' : v.toFixed(3) + '\u2009%'; }
+function fPct(v)   { return v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + '\u2009%'; }
+function fBps(v)   {
+  if (v == null) return '—';
+  const b = Math.round(v * 100);
+  return (b >= 0 ? '+' : '') + b + '\u2009Bps';
+}
+function cls(v)    { return v == null ? 'flat' : v > 0.0005 ? 'up' : v < -0.0005 ? 'dn' : 'flat'; }
+function dotCls(s) { return s === 'REGULAR' ? 'dot-live' : (s === 'PRE'||s === 'POST') ? 'dot-pre' : 'dot-closed'; }
+
+/* ── Build Table ──────────────────────────────────────────────── */
+function buildTable(rows, isBond, isFX, isCrypto) {
+  const DH  = isBond ? 'Tag Bps'  : 'Tag %';
+  const MH  = isBond ? 'MTD Bps'  : 'MTD %';
+  const YH  = isBond ? 'YTD Bps'  : 'YTD %';
+  const Y1H = isBond ? '1J Bps'   : '1J %';
+  const Y3H = isBond ? '3J Bps'   : '3J p.a.';
+  const Y5H = isBond ? '5J Bps'   : '5J p.a.';
+
+  let t = `<table class="dt"><thead><tr>
+    <th>Asset</th><th>Kurs</th>
+    <th>${DH}</th><th>${MH}</th><th>${YH}</th>
+    <th>${Y1H}</th><th>${Y3H}</th><th>${Y5H}</th>
+  </tr></thead><tbody>`;
+
+  for (const d of rows) {
+    const sym = d.s ?? d.symbol;
+    if (d.err) {
+      t += `<tr data-sym="${sym}" data-name="${d.n}" data-sub="${d.sub||''}" onclick="rowClick(this,'${sym}','${d.n}','${d.sub||''}')">
+        <td><div class="a-name">${d.n}</div><div class="a-sub">${d.sub||''}</div></td>
+        <td colspan="7" style="color:var(--subtle);font-size:11px;text-align:center">Keine Daten</td>
+      </tr>`;
+      continue;
+    }
+
+    const rowCrypto = d.isCrypto ?? isCrypto;
+    const priceStr = isBond ? fYield(d.price) : fPrice(d.price, isFX && !rowCrypto, rowCrypto);
+
+    let dV, dC, mV, mC, yV, yC, y1V, y1C, y3V, y3C, y5V, y5C;
+    if (isBond) {
+      dV  = fBps(d.dayAbs);  dC  = cls(d.dayAbs);
+      mV  = fBps(d.mtdAbs);  mC  = cls(d.mtdAbs);
+      yV  = fBps(d.ytdAbs);  yC  = cls(d.ytdAbs);
+      y1V = fBps(d.y1Abs);   y1C = cls(d.y1Abs);
+      y3V = fBps(d.y3Abs);   y3C = cls(d.y3Abs);
+      y5V = fBps(d.y5Abs);   y5C = cls(d.y5Abs);
+    } else {
+      dV  = fPct(d.dayPct);  dC  = cls(d.dayPct);
+      mV  = fPct(d.mtdPct);  mC  = cls(d.mtdPct);
+      yV  = fPct(d.ytdPct);  yC  = cls(d.ytdPct);
+      y1V = fPct(d.y1Pct);   y1C = cls(d.y1Pct);
+      y3V = fPct(d.y3Pa);    y3C = cls(d.y3Pa);
+      y5V = fPct(d.y5Pa);    y5C = cls(d.y5Pa);
+    }
+
+    const esc = s => (s||'').replace(/'/g,"\\'");
+    t += `<tr data-sym="${sym}" onclick="rowClick(this,'${sym}','${esc(d.n)}','${esc(d.sub||'')}')">
+      <td>
+        <div class="a-name"><span class="dot ${dotCls(d.state)}"></span>${d.n}</div>
+        ${d.sub ? `<div class="a-sub">${d.sub}</div>` : ''}
+      </td>
+      <td class="num num-lg">${priceStr}</td>
+      <td class="num ${dC}">${dV}</td>
+      <td class="num ${mC}">${mV}</td>
+      <td class="num ${yC}">${yV}</td>
+      <td class="num ${y1C}">${y1V}</td>
+      <td class="num ${y3C}">${y3V}</td>
+      <td class="num ${y5C}">${y5V}</td>
+    </tr>`;
+  }
+  return t + '</tbody></table>';
+}
+
+/* ── Load Category ────────────────────────────────────────────── */
+async function loadCategory(cat) {
+  // Split symbols into ECB-sourced, computed cross-rates, and plain Yahoo-sourced
+  const yahooSyms    = cat.symbols.filter(s => !s.ecb && !s.isComputed);
+  const ecbSyms      = cat.symbols.filter(s =>  s.ecb);
+  const computedSyms = cat.symbols.filter(s =>  s.isComputed);
+
+  // FX helpers required to compute cross-rate symbols (e.g. EURUSD=X for Gold/Silver EUR)
+  const fxHelperSet = new Set(computedSyms.map(s => s.fxS).filter(Boolean));
+  const fxHelpers   = [...fxHelperSet];
+
+  // Run all network requests in parallel
+  const [weeklyRes, shortRes, ecbRes, fxWRes, fxSRes] = await Promise.all([
+    Promise.allSettled(yahooSyms.map(s => fetchYahoo(s.s, '5y', '1wk'))),
+    Promise.allSettled(yahooSyms.map(s => fetchYahoo(s.s, '5d', '1d'))),
+    Promise.allSettled(ecbSyms.map(s => fetchECB(s.ecb))),
+    Promise.allSettled(fxHelpers.map(s => fetchYahoo(s, '5y', '1wk'))),
+    Promise.allSettled(fxHelpers.map(s => fetchYahoo(s, '5d', '1d'))),
+  ]);
+
+  // Parse FX helpers into lookup maps (weekly history + short live price)
+  const fxWeeklyData = {}, fxShortData = {};
+  fxHelpers.forEach((s, i) => {
+    if (fxWRes[i].status === 'fulfilled' && fxWRes[i].value) {
+      const r = fxWRes[i].value.chart.result[0];
+      fxWeeklyData[s] = { ts: r.timestamp??[], prices: r.indicators?.quote?.[0]?.close??[], meta: r.meta };
+    }
+    if (fxSRes[i].status === 'fulfilled' && fxSRes[i].value) {
+      const r = fxSRes[i].value.chart.result[0];
+      fxShortData[s] = { meta: r.meta, closes: r.indicators?.quote?.[0]?.close??[] };
+    }
+  });
+
+  // Short result lookup by symbol (needed for computed day-prev extraction)
+  const yahooShortByS = {};
+  yahooSyms.forEach((sym, i) => {
+    if (shortRes[i].status === 'fulfilled' && shortRes[i].value) {
+      const r = shortRes[i].value.chart.result[0];
+      yahooShortByS[sym.s] = { meta: r.meta, closes: r.indicators?.quote?.[0]?.close??[] };
+    }
+  });
+
+  // ── First pass: process ECB + Yahoo symbols → populate weeklyCache ──────────
+  let yahooIdx = 0, ecbIdx = 0;
+  const firstPassRows = {};
+  for (const cfg of cat.symbols) {
+    if (cfg.isComputed) continue;
+    if (cfg.ecb) {
+      const res = ecbRes[ecbIdx++];
+      if (res.status !== 'fulfilled' || !res.value) { firstPassRows[cfg.s] = { ...cfg, err: true }; continue; }
+      const cData = ecbToCache(res.value);
+      if (!cData) { firstPassRows[cfg.s] = { ...cfg, err: true }; continue; }
+      weeklyCache[cfg.s] = cData;
+      dailyCache[cfg.s]  = { ts: cData.ts, prices: cData.prices };
+      firstPassRows[cfg.s] = calcMetrics(cData, cData.prevDayPrice, cfg);
+    } else {
+      const i          = yahooIdx++;
+      const shortRaw   = shortRes[i].status === 'fulfilled' ? shortRes[i].value : null;
+      const shortMeta  = shortRaw?.chart?.result?.[0]?.meta ?? null;
+      const dayPrev    = extractDayPrev(shortRaw);
+      const shortPrice = shortMeta?.regularMarketPrice ?? null;
+      let wData = null;
+      if (weeklyRes[i].status === 'fulfilled' && weeklyRes[i].value) {
+        const res = weeklyRes[i].value.chart.result[0];
+        wData = {
+          ts:     res.timestamp ?? [],
+          prices: res.indicators?.quote?.[0]?.close ?? [],
+          meta: {
+            ...res.meta,
+            ...(shortPrice  != null && { regularMarketPrice: shortPrice }),
+            ...(shortMeta?.marketState && { marketState: shortMeta.marketState }),
+          }
+        };
+        weeklyCache[cfg.s] = wData;
+      }
+      firstPassRows[cfg.s] = calcMetrics(wData, dayPrev, cfg);
+    }
+  }
+
+  // ── Second pass: computed cross-rate symbols ─────────────────────────────────
+  // Gold/Silver EUR = base_USD_price / EURUSD_rate (price × 1/EURUSD)
+  const computedRows = {};
+  for (const cfg of computedSyms) {
+    const baseW = weeklyCache[cfg.baseS];
+    const fxW   = fxWeeklyData[cfg.fxS];
+    if (!baseW || !fxW) { computedRows[cfg.s] = { ...cfg, err: true }; continue; }
+
+    // Build EUR price time-series by dividing base USD series by FX rate at each timestamp
+    const eurPrices = baseW.prices.map((p, idx) => {
+      if (p == null) return null;
+      const rate = closestTo(fxW.ts, fxW.prices, baseW.ts[idx]);
+      return rate ? p / rate : null;
+    });
+
+    // Current EUR price from live short data
+    const baseLiveUSD = baseW.meta.regularMarketPrice;
+    const fxLiveRate  = fxShortData[cfg.fxS]?.meta?.regularMarketPrice
+                        ?? fxW.meta?.regularMarketPrice;
+    const eurCurrent  = (baseLiveUSD && fxLiveRate) ? baseLiveUSD / fxLiveRate : null;
+
+    // dayPrev EUR: reconstruct from short series (yesterday's close) of base + fx
+    let eurDayPrev = null;
+    const baseShortCloses = yahooShortByS[cfg.baseS]?.closes ?? [];
+    const fxShortCloses   = fxShortData[cfg.fxS]?.closes ?? [];
+    const validBase = [], validFx = [];
+    for (let i = baseShortCloses.length - 1; i >= 0 && validBase.length < 2; i--)
+      if (baseShortCloses[i] != null) validBase.push(baseShortCloses[i]);
+    for (let i = fxShortCloses.length - 1; i >= 0 && validFx.length < 2; i--)
+      if (fxShortCloses[i] != null) validFx.push(fxShortCloses[i]);
+    if (validBase.length >= 2 && validFx.length >= 2)
+      eurDayPrev = validBase[1] / validFx[1];   // both are yesterday's close
+
+    const syntheticMeta = { ...baseW.meta, regularMarketPrice: eurCurrent, currency: 'EUR' };
+    const syntheticData = { ts: baseW.ts, prices: eurPrices, meta: syntheticMeta };
+    weeklyCache[cfg.s] = syntheticData;
+    dailyCache[cfg.s]  = { ts: baseW.ts, prices: eurPrices };
+    computedRows[cfg.s] = calcMetrics(syntheticData, eurDayPrev, cfg);
+  }
+
+  // Assemble rows in original symbol order
+  const rows = cat.symbols.map(cfg =>
+    cfg.isComputed
+      ? (computedRows[cfg.s]   ?? { ...cfg, err: true })
+      : (firstPassRows[cfg.s] ?? { ...cfg, err: true })
+  );
+
+  const box = document.getElementById(cat.boxId);
+  box.innerHTML = buildTable(rows, cat.isBond, cat.isFX, cat.isCrypto);
+  box.classList.remove('fadein'); void box.offsetWidth; box.classList.add('fadein');
+  const ok = rows.filter(r => !r.err).length;
+  document.getElementById(cat.cntId).textContent = `${ok}/${rows.length}`;
+}
+
+/* ── Row Click → Open Chart ───────────────────────────────────── */
+function rowClick(tr, symbol, name, sub) {
+  // Toggle: click same row again → close
+  if (activeSymbol === symbol && document.getElementById('chart-panel').style.display !== 'none') {
+    closeChart(); return;
+  }
+
+  // Deselect previous row
+  if (activeRow) activeRow.classList.remove('selected');
+  activeRow = tr;
+  tr.classList.add('selected');
+
+  openChart(symbol, name, sub);
+}
+
+async function openChart(symbol, name, sub) {
+  activeSymbol = symbol;
+
+  const panel = document.getElementById('chart-panel');
+  panel.style.display = 'block';
+
+  document.getElementById('cp-name').textContent = name;
+  document.getElementById('cp-sub').textContent  = sub ? `· ${sub}` : '';
+
+  // Restore active period button
+  document.querySelectorAll('.cp-pb').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('onclick').includes(`'${activePeriod}'`));
+  });
+
+  // Load daily chart data if not yet cached.
+  // ECB + computed symbols: dailyCache already filled by loadCategory.
+  // Yahoo symbols: lazy-fetch 5y/1d on first chart open.
+  if (!dailyCache[symbol]) {
+    const cfg = symbolConfig[symbol];
+    if (cfg?.ecb) {
+      // ECB data should already be in dailyCache; if somehow missing, use weeklyCache
+      if (weeklyCache[symbol]) {
+        dailyCache[symbol] = { ts: weeklyCache[symbol].ts, prices: weeklyCache[symbol].prices };
+      }
+    } else if (cfg?.isComputed) {
+      // Computed symbols: dailyCache should be pre-filled; if missing, rebuild from weekly
+      if (weeklyCache[symbol]) {
+        dailyCache[symbol] = { ts: weeklyCache[symbol].ts, prices: weeklyCache[symbol].prices };
+      } else {
+        // Fallback: fetch daily base + fx and compute
+        showChartLoading(true);
+        const [baseRaw, fxRaw] = await Promise.all([
+          fetchYahoo(cfg.baseS, '5y', '1d'),
+          fetchYahoo(cfg.fxS,   '5y', '1d'),
+        ]);
+        if (baseRaw && fxRaw) {
+          const bRes = baseRaw.chart.result[0], fRes = fxRaw.chart.result[0];
+          const fxTs = fRes.timestamp??[], fxPx = fRes.indicators?.quote?.[0]?.close??[];
+          const ts   = bRes.timestamp??[];
+          const prices = (bRes.indicators?.quote?.[0]?.close??[]).map((p,i) => {
+            if (p == null) return null;
+            const rate = closestTo(fxTs, fxPx, ts[i]);
+            return rate ? p / rate : null;
+          });
+          dailyCache[symbol] = { ts, prices };
+        }
+        showChartLoading(false);
+      }
+    } else {
+      showChartLoading(true);
+      const raw = await fetchYahoo(symbol, '5y', '1d');
+      if (raw) {
+        const res = raw.chart.result[0];
+        dailyCache[symbol] = {
+          ts:     res.timestamp ?? [],
+          prices: res.indicators?.quote?.[0]?.close ?? []
+        };
+      }
+      showChartLoading(false);
+    }
+  }
+
+  renderChart(activePeriod);
+  setTimeout(() => panel.scrollIntoView({ behavior:'smooth', block:'nearest' }), 50);
+}
+
+/* ── Period Button ────────────────────────────────────────────── */
+async function setPeriod(btn, period) {
+  document.querySelectorAll('.cp-pb').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  activePeriod = period;
+
+  if (!activeSymbol) return;
+
+  // Need intraday data for 1T?
+  if (period === '1d' && !intradayCache[activeSymbol]) {
+    const cfg = symbolConfig[activeSymbol];
+    showChartLoading(true);
+    if (cfg?.isComputed) {
+      // Fetch intraday for both base and fx pair, then compute cross-rate
+      const [baseRaw, fxRaw] = await Promise.all([
+        fetchYahoo(cfg.baseS, '1d', '5m'),
+        fetchYahoo(cfg.fxS,   '1d', '5m'),
+      ]);
+      if (baseRaw && fxRaw) {
+        const bRes = baseRaw.chart.result[0], fRes = fxRaw.chart.result[0];
+        const fxTs = fRes.timestamp??[], fxPx = fRes.indicators?.quote?.[0]?.close??[];
+        const ts   = bRes.timestamp??[];
+        const prices = (bRes.indicators?.quote?.[0]?.close??[]).map((p, i) => {
+          if (p == null) return null;
+          const rate = closestTo(fxTs, fxPx, ts[i]);
+          return rate ? p / rate : null;
+        });
+        intradayCache[activeSymbol] = { ts, prices };
+      }
+    } else {
+      const raw = await fetchYahoo(activeSymbol, '1d', '5m');
+      if (raw) {
+        const res = raw.chart.result[0];
+        intradayCache[activeSymbol] = {
+          ts:     res.timestamp ?? [],
+          prices: res.indicators?.quote?.[0]?.close ?? []
+        };
+      }
+    }
+    showChartLoading(false);
+  }
+
+  renderChart(period);
+}
+
+function showChartLoading(on) {
+  document.getElementById('cp-loading').style.display   = on ? 'flex' : 'none';
+  document.getElementById('cp-canvas-wrap').style.display = on ? 'none' : 'block';
+}
+
+/* ── Slice Data For Period ────────────────────────────────────── */
+function getSlice(period) {
+  if (period === '1d') {
+    const d = intradayCache[activeSymbol];
+    return d ? { ts:d.ts, prices:d.prices, intra:true } : null;
+  }
+  const d = dailyCache[activeSymbol];
+  if (!d) return null;
+
+  const nowTs = Math.floor(Date.now() / 1000);
+  const nd    = new Date();
+  const cutoffs = {
+    '1w':  nowTs - 7   * 86400,
+    '1m':  nowTs - 30  * 86400,
+    '3m':  nowTs - 91  * 86400,
+    '6m':  nowTs - 182 * 86400,
+    'ytd': Date.UTC(nd.getFullYear(), 0, 1) / 1000,
+    '1y':  nowTs - 365 * 86400,
+    '3y':  nowTs - 1096 * 86400,
+    '5y':  nowTs - 1827 * 86400,
+  };
+  const cut = cutoffs[period] ?? 0;
+
+  const ts = [], prices = [];
+  for (let i = 0; i < d.ts.length; i++) {
+    if (d.ts[i] >= cut && d.prices[i] != null) {
+      ts.push(d.ts[i]); prices.push(d.prices[i]);
+    }
+  }
+  return { ts, prices, intra:false };
+}
+
+/* ── Render Chart ─────────────────────────────────────────────── */
+function renderChart(period) {
+  const slice = getSlice(period);
+  if (!slice || slice.prices.length < 2) {
+    document.getElementById('cp-perf').textContent = '—';
+    document.getElementById('cp-perf').className   = 'cp-perf flat';
+    return;
+  }
+
+  const { ts, prices, intra } = slice;
+  const first = prices[0], last = prices[prices.length - 1];
+  const isUp  = last >= first;
+  const color = isUp ? '#3fb950' : '#f85149';
+  const perf  = first ? (last / first - 1) * 100 : 0;
+
+  // Update perf badge
+  const perfEl = document.getElementById('cp-perf');
+  perfEl.textContent = (perf >= 0 ? '+' : '') + perf.toFixed(2) + '\u2009%';
+  perfEl.className   = 'cp-perf ' + (perf >= 0 ? 'up' : 'dn');
+
+  // Format X-axis labels
+  const fmtOpts = intra
+    ? { hour:'2-digit', minute:'2-digit' }
+    : (period === '1w' || period === '1m')
+      ? { day:'2-digit', month:'2-digit' }
+      : (period === '3m' || period === '6m')
+        ? { day:'2-digit', month:'short' }
+        : { month:'short', year:'2-digit' };
+
+  const labels = ts.map(t => new Date(t * 1000).toLocaleString('de-DE', fmtOpts));
+
+  // Destroy old chart
+  if (activeChartJS) { activeChartJS.destroy(); activeChartJS = null; }
+
+  const canvas = document.getElementById('price-chart');
+  const ctx    = canvas.getContext('2d');
+  const h      = canvas.parentElement.offsetHeight || 280;
+  const grad   = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, isUp ? 'rgba(63,185,80,.28)' : 'rgba(248,81,73,.28)');
+  grad.addColorStop(1, 'rgba(13,17,23,0)');
+
+  // Adaptive tick limit
+  const maxTicks = period === '1d' ? 10 : period === '1w' ? 7 : period === '1m' ? 8 : 9;
+
+  // Price label formatter
+  const priceFmt = v => {
+    if (v == null) return '';
+    if (v >= 10000) return v.toLocaleString('de-DE', {maximumFractionDigits:0});
+    if (v >= 100)   return v.toLocaleString('de-DE', {minimumFractionDigits:2,maximumFractionDigits:2});
+    return v.toFixed(4);
+  };
+
+  activeChartJS = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels,
+      datasets:[{
+        data: prices,
+        borderColor: color,
+        backgroundColor: grad,
+        fill: true,
+        borderWidth: 1.5,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHoverBackgroundColor: color,
+        pointHoverBorderColor: color,
+        tension: 0.05,
+      }]
+    },
+    options:{
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction:{ mode:'index', intersect:false },
+      animation:{ duration:250 },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{
+          backgroundColor:'#1c2128', borderColor:'#30363d', borderWidth:1,
+          titleColor:'#7d8590', bodyColor:'#e6edf3',
+          padding:10, caretSize:5,
+          callbacks:{
+            label: item => ' ' + priceFmt(item.raw),
+            title: items => items[0]?.label ?? ''
+          }
+        }
+      },
+      scales:{
+        x:{
+          grid:{ color:'rgba(48,54,61,.4)', drawBorder:false },
+          ticks:{ color:'#484f58', maxTicksLimit:maxTicks, maxRotation:0,
+                  font:{ family:'var(--mono)', size:9.5 } }
+        },
+        y:{
+          position:'right',
+          grid:{ color:'rgba(48,54,61,.4)', drawBorder:false },
+          ticks:{ color:'#484f58', font:{ family:'var(--mono)', size:9.5 },
+                  callback: v => priceFmt(v) }
+        }
+      }
+    }
+  });
+}
+
+function closeChart() {
+  document.getElementById('chart-panel').style.display = 'none';
+  if (activeRow) { activeRow.classList.remove('selected'); activeRow = null; }
+  activeSymbol = null;
+}
+
+/* ── Countdown ────────────────────────────────────────────────── */
+function startCountdown() {
+  clearInterval(cTimer);
+  sLeft = REFRESH_SEC;
+  const badge = document.getElementById('badge-cd');
+  badge.hidden = false;
+  cTimer = setInterval(() => {
+    sLeft--;
+    const m = Math.floor(sLeft / 60), s = String(sLeft % 60).padStart(2,'0');
+    badge.textContent = `⟳ ${m}:${s}`;
+    if (sLeft <= 0) { clearInterval(cTimer); loadAll(); }
+  }, 1000);
+}
+
+/* ── Master Load ──────────────────────────────────────────────── */
+async function loadAll() {
+  if (loading) return;
+  loading = true;
+
+  // Wipe chart caches so next chart open fetches fresh data.
+  // weeklyCache is overwritten by loadCategory anyway.
+  for (const k of Object.keys(dailyCache))    delete dailyCache[k];
+  for (const k of Object.keys(intradayCache)) delete intradayCache[k];
+  const btn = document.getElementById('btn-refresh');
+  const ico = document.getElementById('ico-refresh');
+  btn.disabled = true;
+  ico.classList.add('spinning');
+
+  await Promise.all(CATEGORIES.map(loadCategory));
+
+  const now = new Date();
+  document.getElementById('ts-update').textContent =
+    'Stand: ' + now.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+
+  ico.classList.remove('spinning');
+  btn.disabled = false;
+  loading = false;
+
+  // If a symbol was active, refresh its weekly data in the chart too (if open)
+  if (activeSymbol && document.getElementById('chart-panel').style.display !== 'none') {
+    // Invalidate daily cache to allow fresh chart data on next open
+    // (Keep current chart visible; user can manually re-click)
+  }
+
+  startCountdown();
+}
+
+function triggerRefresh() {
+  if (loading) return;
+  clearInterval(cTimer);
+  document.getElementById('badge-cd').hidden = true;
+  loadAll();
+}
+
+/* ── Init ─────────────────────────────────────────────────────── */
+(function init() {
+  const d = new Date();
+  document.getElementById('footer-date').textContent =
+    d.toLocaleDateString('de-DE', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+  loadAll();
+})();
+</script>
+</body>
+</html>
